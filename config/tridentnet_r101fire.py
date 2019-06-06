@@ -17,12 +17,12 @@ def get_config(is_train):
         fp16 = False
 
     class Trident:
-        num_branch = 3 if is_train else 1
-        train_scaleaware = False
-        test_scaleaware = False
-        branch_ids = range(num_branch) if is_train else [1]
-        branch_dilates = [1, 2, 3] if is_train else [2]
-        valid_ranges = [(0, -1), (0, -1), (0, -1)] if is_train else [(0, -1)]
+        num_branch = 3
+        train_scaleaware = True
+        test_scaleaware = True
+        branch_ids = range(num_branch)
+        branch_dilates = [1, 2, 3]
+        valid_ranges = [(0, 90), (30, 160), (90, -1)]
         valid_ranges_on_origin = True
         branch_bn_shared = True
         branch_conv_shared = True
@@ -34,7 +34,7 @@ def get_config(is_train):
     class KvstoreParam:
         kvstore     = "local"
         batch_image = General.batch_image
-        gpus        = [0, 1, 2, 3, 4, 5, 6, 7]
+        gpus        = [0]
         fp16        = General.fp16
 
     class NormalizeParam:
@@ -117,9 +117,10 @@ def get_config(is_train):
 
     class DatasetParam:
         if is_train:
-            image_set = ("coco_train2014", "coco_valminusminival2014")
+            image_set = ("coco_trainme",)
         else:
-            image_set = ("coco_minival2014", )
+            #not implemented
+            image_set = ("coco_runtest",)
 
     backbone = Backbone(BackboneParam)
     neck = Neck(NeckParam)
@@ -166,7 +167,7 @@ def get_config(is_train):
 
         class schedule:
             begin_epoch = 0
-            end_epoch = 6
+            end_epoch = 2
             lr_iter = [60000 * 16 // (len(KvstoreParam.gpus) * KvstoreParam.batch_image),
                        80000 * 16 // (len(KvstoreParam.gpus) * KvstoreParam.batch_image)]
 

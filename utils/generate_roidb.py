@@ -12,7 +12,12 @@ dataset_split_mapping = {
     "minival2014": "val2014",
     "train2017": "train2017",
     "val2017": "val2017",
-    "test-dev2017": "test2017"
+    "test-dev2017": "test2017",
+    "trainme":"me", 
+    
+    "runtest":"me",
+    "runtrain":"me",
+    "runval":"me"
 }
 
 

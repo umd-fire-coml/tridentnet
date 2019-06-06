@@ -88,3 +88,4 @@ mxnet/
 mxnext/
 data/
 !data/cache/coco_micro_test.roidb
+experiments/
