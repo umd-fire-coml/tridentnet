@@ -102,6 +102,9 @@ if __name__ == "__main__":
                 execs.append(mod)
 
         all_outputs = []
+        
+        #digraph = mx.viz.plot_network(mod, save_format = 'jpg')
+        #digraph.render()
 
         if index_split == 0:
             def eval_worker(exe, data_queue, result_queue):
@@ -234,18 +237,16 @@ if __name__ == "__main__":
                 ys = det[:, 1]
                 ws = det[:, 2] - xs + 1
                 hs = det[:, 3] - ys + 1
-                result += [
-                    {'image_id': int(iid),
-                     'category_id': int(cid),
-                     'bbox': [float(xs[k]), float(ys[k]), float(ws[k]), float(hs[k])],
-                     'score': float(scores[k])}
-                    for k in range(det.shape[0])
-                ]
+                
+                result += [{'image_id': int(iid),'category_id': int(cid),'bbox': [float(xs[k]), float(ys[k]), float(ws[k]), float(hs[k])],'score': float(scores[k])} for k in range(det.shape[0]) if(scores[k] > pTest.nms.thr)]
+                                
             result = sorted(result, key=lambda x: x['score'])[-pTest.max_det_per_image:]
             coco_result += result
 
         t5_s = time.time()
         print("convert to coco format uses: %.1f" % (t5_s - t4_s))
+        
+    
 
     import json
     json.dump(coco_result,

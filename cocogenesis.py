@@ -26,8 +26,8 @@ def parse_line(data,line,image_id,index):#this is meant to parse a single line o
     args=line.split()
     ''' figure out how to take bbox from the tokenized string'''
     left=float(args[4])
-    right=float(args[5])
-    top=float(args[6])
+    top=float(args[5])
+    right=float(args[6])
     bottom=float(args[7])
     
     bbox = []
@@ -35,14 +35,26 @@ def parse_line(data,line,image_id,index):#this is meant to parse a single line o
     bbox.append(round(top))
     bbox.append(round(abs(right-left)))
     bbox.append(round(abs(bottom-top)))
+    dimensions=[]
+    dimensions.append(float(args[8]))
+    dimensions.append(float(args[9]))
+    dimensions.append(float(args[10]))
+    locations=[]
+    locations.append(float(args[11]))
+    locations.append(float(args[12]))
+    locations.append(float(args[13]))
     data['annotations'].append({
         'area' : int(round(bbox[3]*bbox[2])),#force int format
         'iscrowd': 0,
         'image_id': int(image_id),
         'bbox' : bbox,
-        'category_id' : categories.index(args[0]),
+        'category_id' : categories.index(args[0])+1,
         'id' : int(image_id)*10000+index,
-        'segmentation' :[[float(args[8]),float(args[9])]]
+        'segmentation' :[[float(args[8]),float(args[9])]],
+        'alpha':float(args[3]),
+        'dimensions':dimensions,
+        'location':locations,
+        'ry':float(args[14])
     })
     
     return bbox
@@ -52,7 +64,7 @@ def url_generator(url):
 
 def get_date():
     return '4/20/2019'
-def per_image(data,image,annotation,image_location,image_id):
+def per_image(data,image,annotation,image_location,image_id,is_test=False):
     #Loop over everything below for each image
     h,w,c = image.shape
     date = get_date()
@@ -63,9 +75,9 @@ def per_image(data,image,annotation,image_location,image_id):
     url = url_generator(annotation) # these need to be made
     
     file = open(annotation,"r")
-    
-    for i,line in enumerate(file.readlines()):
-        parse_line(data,line,image_id,i)
+    if not is_test:
+        for i,line in enumerate(file.readlines()):
+            parse_line(data,line,image_id,i)
         
     data['images'].append({
         'license' : 1,
@@ -100,25 +112,14 @@ def generate_json(imagedir,annodir):
     for i,category in enumerate(categories):
         data['categories'].append({
             'supercategory': category,
-            'id': i,
+            'id': i+1,
             'category': category
         })
-    val=copy.deepcopy(data)
-    test=copy.deepcopy(data)
     for i,name in enumerate(tqdm.tqdm(images)):
-        if i>700:
-            per_image(data,cv2.imread(str(name)),str(annotations[i]),name,name[-10:-4])
-        elif i<350:
-            per_image(val,cv2.imread(str(name)),str(annotations[i]),name,name[-10:-4])
-        else:
-            per_image(test,cv2.imread(str(name)),str(annotations[i]),name,name[-10:-4])
+        per_image(data,cv2.imread(str(name)),str(annotations[i]),name,name[-10:-4])
 
-    with open('data/coco/annotations/instances_runtrain.json', 'w') as fp:
+    with open('data/coco/annotations/everything.json', 'w') as fp:
         json.dump(data, fp)
-    with open('data/coco/annotations/instances_runval.json', 'w') as fp:
-        json.dump(val, fp)
-    with open('data/coco/annotations/instances_runtest.json', 'w') as fp:
-        json.dump(test, fp)
     
         
 

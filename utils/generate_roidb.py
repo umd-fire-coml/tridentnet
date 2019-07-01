@@ -33,7 +33,7 @@ def parse_args():
 def generate_groundtruth_database(dataset_name, dataset_split):
     annotation_type = 'image_info' if 'test' in dataset_split else 'instances'
     annotation_path = "data/%s/annotations/%s_%s.json" % (dataset_name, annotation_type, dataset_split)
-
+    print("reading +" + annotation_path)
     dataset = COCO(annotation_path)
     img_ids = dataset.getImgIds()
     roidb = []
@@ -63,12 +63,15 @@ def generate_groundtruth_database(dataset_name, dataset_split):
 
         gt_bbox = np.zeros((num_instance, 4), dtype=np.float32)
         gt_class = np.zeros((num_instance, ), dtype=np.int32)
-        gt_poly = [None] * num_instance
-
-        for i, inst in enumerate(valid_instances):
-            cls = datasetid_to_trainid[inst['category_id']]
+        gt_alpha=np.zeros((num_instance,),dtype=np.float32)
+        gt_poly = [None] * num_instance #returns a none array len numinstance
+        gt_dbox=np.zeros((num_instance,3),dtype=np.float32)
+        for i, inst in enumerate(valid_instances): #for each valid instance 
+            cls = datasetid_to_trainid[inst['category_id']] # class is id fixed
             gt_bbox[i, :] = inst['clean_bbox']
+            gt_dbox[i,:] = inst['dimensions']
             gt_class[i] = cls
+            gt_alpha[i]=inst['alpha']
             gt_poly[i] = inst['segmentation']
 
         split = dataset_split_mapping[dataset_split]
@@ -80,8 +83,10 @@ def generate_groundtruth_database(dataset_name, dataset_split):
             'gt_class': gt_class,
             'gt_bbox': gt_bbox,
             'gt_poly': gt_poly,
-            'flipped': False}
-
+            'gt_dbox':gt_dbox,
+            'gt_alpha':gt_alpha,
+            'flipped': False
+        }
         roidb.append(roi_rec)
 
     return roidb

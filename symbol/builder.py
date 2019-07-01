@@ -1,3 +1,4 @@
+#This is the builder from symbol
 from __future__ import print_function
 
 import mxnet as mx
@@ -295,7 +296,8 @@ class RpnHead(object):
             bbox_std=bbox_target_std,
             name="subsample_proposal"
         )
-
+        print("printint proposal")
+        mx.viz.print_summary(proposal)
         label = X.reshape(label, (-3, -2))
         bbox_target = X.reshape(bbox_target, (-3, -2))
         bbox_weight = X.reshape(bbox_weight, (-3, -2))
@@ -312,10 +314,12 @@ class BboxHead(object):
     def _get_bbox_head_logit(self, conv_feat):
         raise NotImplementedError
 
-    def get_output(self, conv_feat):
+    def get_output(self, conv_feat): # updated to get output of dimensions and alpha_angle
         p = self.p
         num_class = p.num_class
         num_reg_class = 2 if p.regress_target.class_agnostic else num_class
+        num_dimension_vals = 3 # 3D object dimensions: height, width, length (in meters)
+        num_alpha_vals = 1 # Observation angle of object, ranging [-pi..pi]
 
         head_feat = self._get_bbox_head_logit(conv_feat)
 
@@ -328,16 +332,31 @@ class BboxHead(object):
             name='bbox_cls_logit',
             init=X.gauss(0.01)
         )
+        
         bbox_delta = X.fc(
             head_feat,
             filter=4 * num_reg_class,
             name='bbox_reg_delta',
             init=X.gauss(0.001)
         )
+        
+        dimensions = X.fc(
+            head_feat,
+            filter=num_dimension_vals,
+            name='dimensions',
+            init=X.gauss(0.001)
+        )
+        
+        alpha = X.fc(
+            head_feat,
+            filter=num_alpha_vals,
+            name='alpha',
+            init=X.gauss(0.001)
+        )
 
-        return cls_logit, bbox_delta
+        return cls_logit, bbox_delta, alpha, dimensions
 
-    def get_prediction(self, conv_feat, im_info, proposal):
+    def get_prediction(self, conv_feat, im_info, proposal): # updated to expose conv_feat, and predict dimensions and alpha_angle
         p = self.p
         bbox_mean = p.regress_target.mean
         bbox_std = p.regress_target.std
@@ -346,7 +365,7 @@ class BboxHead(object):
         class_agnostic = p.regress_target.class_agnostic
         num_reg_class = 2 if class_agnostic else num_class
 
-        cls_logit, bbox_delta = self.get_output(conv_feat)
+        cls_logit, bbox_delta, alpha, dimensions = self.get_output(conv_feat)
 
         bbox_delta = X.reshape(
             bbox_delta,
@@ -363,26 +382,29 @@ class BboxHead(object):
             bbox_std=bbox_std,
             class_agnostic=class_agnostic
         )
+        
         cls_score = X.softmax(
             cls_logit,
             axis=-1,
             name='bbox_cls_score'
         )
+        
         cls_score = X.reshape(
             cls_score,
             shape=(batch_image, -1, num_class),
             name='bbox_cls_score_reshape'
         )
-        return cls_score, bbox_xyxy
+        
+        
+        return cls_score, bbox_xyxy, alpha, dimensions, conv_feat
 
     def get_loss(self, conv_feat, cls_label, bbox_target, bbox_weight):
         p = self.p
         batch_roi = p.image_roi * p.batch_image
         batch_image = p.batch_image
         smooth_l1_scalar = p.regress_target.smooth_l1_scalar or 1.0
-
-        cls_logit, bbox_delta = self.get_output(conv_feat)
-
+        cls_logit, bbox_delta,alpha,dimensions = self.get_output(conv_feat)#output here
+        
         scale_loss_shift = 128.0 if p.fp16 else 1.0
 
         # classification loss
@@ -518,7 +540,7 @@ class Bbox4conv1fcHead(BboxHead):
         return self._head_feat
 
 
-class BboxC5Head(BboxHead):
+class BboxC5Head(BboxHead): #This is the bbox head that is used
     def __init__(self, pBbox):
         super().__init__(pBbox)
 
@@ -688,20 +710,6 @@ class MXNetResNet101V2(Backbone):
         return self.symbol
 
 
-class ResNet50V1(Backbone):
-    def __init__(self, pBackbone):
-        super().__init__(pBackbone)
-        from mxnext.backbone.resnet_v1 import Builder
-        b = Builder()
-        self.symbol = b.get_backbone("msra", 50, "c4", pBackbone.normalizer, pBackbone.fp16)
-
-    def get_rpn_feature(self):
-        return self.symbol
-
-    def get_rcnn_feature(self):
-        return self.symbol
-
-
 class ResNet101V1(Backbone):
     def __init__(self, pBackbone):
         super().__init__(pBackbone)
@@ -744,20 +752,6 @@ class ResNetV1dC4(Backbone):
         return self.symbol
 
 
-class MXNetResNet50V2C4C5(Backbone):
-    def __init__(self, pBackbone):
-        super().__init__(pBackbone)
-        from mxnext.backbone.resnet_v2 import Builder
-        b = Builder()
-        self.c4, self.c5 = b.get_backbone("mxnet", 50, "c4c5", pBackbone.normalizer, pBackbone.fp16)
-
-    def get_rpn_feature(self):
-        return self.c4
-
-    def get_rcnn_feature(self):
-        return self.c5
-
-
 class MXNetResNet101V2C4C5(Backbone):
     def __init__(self, pBackbone):
         super().__init__(pBackbone)
@@ -772,7 +766,7 @@ class MXNetResNet101V2C4C5(Backbone):
         return self.c5
 
 
-class Neck(object):
+class Neck(object):# called
     def __init__(self, pNeck):
         self.p = patch_config_as_nothrow(pNeck)
 
@@ -825,7 +819,7 @@ class RoiExtractor(object):
         raise NotImplementedError
 
 
-class RoiAlign(RoiExtractor):
+class RoiAlign(RoiExtractor):# Called as ROI extractor
     def __init__(self, pRoi):
         super().__init__(pRoi)
 

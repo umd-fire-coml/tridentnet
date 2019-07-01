@@ -2,6 +2,8 @@ from models.tridentnet.builder import TridentFasterRcnn as Detector
 from models.tridentnet.builder import TridentMXNetResNetV2 as Backbone
 from models.tridentnet.builder import TridentRpnHead as RpnHead
 from models.tridentnet.builder import process_branch_outputs, process_branch_rpn_outputs
+from models.tridentnet.builder import TridentAlpha as Alpha
+from models.tridentnet.builder import TridentDimHead as BoxHead
 from symbol.builder import Neck
 from symbol.builder import RoiAlign as RoiExtractor
 from symbol.builder import BboxC5Head as BboxHead
@@ -14,7 +16,7 @@ def get_config(is_train):
         depth = 101
         name = __name__.rsplit("/")[-1].rsplit(".")[-1]
         batch_image = 1 if is_train else 1
-        fp16 = False
+        fp16 = True
 
     class Trident:
         num_branch = 3
@@ -95,6 +97,7 @@ def get_config(is_train):
             std = (0.1, 0.1, 0.2, 0.2)
 
 
+    
     class BboxParam:
         fp16        = General.fp16
         normalizer  = NormalizeParam.normalizer
@@ -107,7 +110,17 @@ def get_config(is_train):
             mean = (0.0, 0.0, 0.0, 0.0)
             std = (0.1, 0.1, 0.2, 0.2)
 
-
+    class DimParam(BboxParam):
+        fp16 = General.fp16
+        normalizer = NormalizeParam.normalizer
+        
+        class regress_target:
+            class_agnostic = True
+            mean = (0.0, 0.0, 0.0, 0.0)
+            std = (0.1, 0.1, 0.2, 0.2)
+    class AlphaParam:
+        fp16 = General.fp16
+        normalizer = NormalizeParam
     class RoiParam:
         fp16 = General.fp16
         normalizer = NormalizeParam.normalizer
@@ -117,10 +130,11 @@ def get_config(is_train):
 
     class DatasetParam:
         if is_train:
-            image_set = ("coco_trainme",)
+            image_set = ("coco_runtrain",) # need to match filenames in data/cache
         else:
             #not implemented
-            image_set = ("coco_runtest",)
+            image_set = ("coco_runtest",) # need to match filenames in data/cache
+        val_set="coco_runval"
 
     backbone = Backbone(BackboneParam)
     neck = Neck(NeckParam)
@@ -167,7 +181,7 @@ def get_config(is_train):
 
         class schedule:
             begin_epoch = 0
-            end_epoch = 2
+            end_epoch = 6 # picks this checkpoint # in experiments/tridentnet_r101fire
             lr_iter = [60000 * 16 // (len(KvstoreParam.gpus) * KvstoreParam.batch_image),
                        80000 * 16 // (len(KvstoreParam.gpus) * KvstoreParam.batch_image)]
 
@@ -274,29 +288,29 @@ def get_config(is_train):
 
     import core.detection_metric as metric
 
-    rpn_acc_metric = metric.AccWithIgnore(
-        "RpnAcc",
-        ["rpn_cls_loss_output"],
-        ["rpn_cls_label"]
-    )
     rpn_l1_metric = metric.L1(
         "RpnL1",
         ["rpn_reg_loss_output"],
         ["rpn_cls_label"]
     )
-    # for bbox, the label is generated in network so it is an output
-    box_acc_metric = metric.AccWithIgnore(
-        "RcnnAcc",
-        ["bbox_cls_loss_output", "bbox_label_blockgrad_output"],
-        []
+    alpha_l1_metric = metric.L1(
+        "aAccL1",
+        ["rpn_reg_loss_output"],
+        ["rpn_cls_label"]
     )
+    # for bbox, the label is generated in network so it is an output
     box_l1_metric = metric.L1(
         "RcnnL1",
         ["bbox_reg_loss_output", "bbox_label_blockgrad_output"],
         []
     )
+    dim_l1_metric = metric.L1(
+        "DimL1",
+        ["bbox_reg_loss_output", "bbox_label_blockgrad_output"],
+        []
+    )
 
-    metric_list = [rpn_acc_metric, rpn_l1_metric, box_acc_metric, box_l1_metric]
+    metric_list = [rpn_l1_metric, dim_l1_metric, box_l1_metric, alpha_l1_metric]
 
     return General, KvstoreParam, RpnParam, RoiParam, BboxParam, DatasetParam, \
            ModelParam, OptimizeParam, TestParam, \

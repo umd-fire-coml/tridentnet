@@ -5,6 +5,7 @@ import mxnet as mx
 import numpy as np
 import os
 import importlib
+import time
 
 from six.moves import reduce
 from six.moves import cPickle as pkl
@@ -93,9 +94,37 @@ def train_net(config):
         collector_queue_depth=2
     )
 
+    #load validation dataset
+    voidbs= [pkl.load(open("data/cache/{}.roidb".format(pDataset.val_set), "rb"), encoding="latin1")]
+    voidb = reduce(lambda x, y: x + y, voidbs)
+    # filter empty image
+    voidb = [rec for rec in voidb if rec["gt_bbox"].shape[0] > 0]
+    # add flip roi record
+    flipped_voidb = []
+    for rec in voidb:
+        new_rec = rec.copy()
+        new_rec["flipped"] = True
+        flipped_voidb.append(new_rec)
+    voidb = voidb + flipped_voidb
+
+    from core.detection_input import AnchorLoader
+    val_data = AnchorLoader(
+        roidb=voidb,
+        transform=transform,
+        data_name=data_name, # does this matter?
+        label_name=label_name, # does this matter?
+        batch_size=input_batch_size,
+        shuffle=True,
+        kv=kv,
+        num_worker=6,
+        num_collector=2,
+        worker_queue_depth=2,
+        collector_queue_depth=2
+    )
+    
     # infer shape
     worker_data_shape = dict(train_data.provide_data + train_data.provide_label)
-    for key in worker_data_shape:
+    for key in worker_data_shape:  
         worker_data_shape[key] = (pKv.batch_image,) + worker_data_shape[key][1:]
     arg_shape, _, aux_shape = sym.infer_shape(**worker_data_shape)
 
@@ -104,17 +133,27 @@ def train_net(config):
 
     _, out_shape, _ = sym.infer_shape(**worker_data_shape)
     terminal_out_shape_dict = zip(sym.list_outputs(), out_shape)
-
     if rank == 0:
-        logger.info('parameter shape')
-        logger.info(pprint.pformat([i for i in out_shape_dict if not i[0].endswith('output')]))
+        #logger.info('parameter shape')
+        #logger.info(pprint.pformat([i for i in out_shape_dict if not i[0].endswith('output')]))
 
-        logger.info('intermediate output shape')
-        logger.info(pprint.pformat([i for i in out_shape_dict if i[0].endswith('output')]))
+        #logger.info('intermediate output shape')
+        #logger.info(pprint.pformat([i for i in out_shape_dict if i[0].endswith('output')]))
 
         logger.info('terminal output shape')
         logger.info(pprint.pformat([i for i in terminal_out_shape_dict]))
+    #infer shape for validation
+    worker2_data_shape = dict(val_data.provide_data + val_data.provide_label)
+    for key in worker2_data_shape:
+        worker2_data_shape[key] = (pKv.batch_image,) + worker2_data_shape[key][1:]
+    arg_shape, _, aux_shape = sym.infer_shape(**worker2_data_shape)
 
+    _, out_shape, _ = sym.get_internals().infer_shape(**worker2_data_shape)
+    out_shape_dict2 = list(zip(sym.get_internals().list_outputs(), out_shape))
+
+    _, out_shape, _ = sym.infer_shape(**worker2_data_shape)
+    terminal_out_shape_dict2 = zip(sym.list_outputs(), out_shape)
+        
     # memonger
     if pModel.memonger:
         last_block = pModel.memonger_until or ""
@@ -122,8 +161,9 @@ def train_net(config):
             logger.info("do memonger up to {}".format(last_block))
 
         type_dict = {k: np.float32 for k in worker_data_shape}
-        sym = search_plan_to_layer(sym, last_block, 1000, type_dict=type_dict, **worker_data_shape)
+        sym = search_plan_to_layer(sym, last_block, 1000, type_dict=type_dict, **worker2_data_shape)
 
+        
     # load and initialize params
     if pOpt.schedule.begin_epoch != 0:
         arg_params, aux_params = load_checkpoint(model_prefix, begin_epoch)
@@ -148,7 +188,7 @@ def train_net(config):
     excluded_param = pModel.pretrain.excluded_param
     data_names = [k[0] for k in train_data.provide_data]
     label_names = [k[0] for k in train_data.provide_label]
-
+    
     mod = DetModule(sym, data_names=data_names, label_names=label_names,
                     logger=logger, context=ctx, fixed_param=fixed_param, excluded_param=excluded_param)
 
@@ -237,7 +277,7 @@ def train_net(config):
     if profile:
         mx.profiler.set_config(profile_all=True, filename="%s.json" % pGen.name)
         mx.profiler.set_state('run')
-
+    
     # train
     mod.fit(
         train_data=train_data,
@@ -253,7 +293,8 @@ def train_net(config):
         aux_params=aux_params,
         begin_epoch=begin_epoch,
         num_epoch=end_epoch,
-        profile=profile
+        profile=profile,
+        eval_data=val_data
     )
 
     logging.info("Training has done")

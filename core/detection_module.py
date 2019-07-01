@@ -106,7 +106,7 @@ class DetModule(BaseModule):
                 for excluded_partial_name in excluded_param:
                     if excluded_partial_name in name:
                         fixed_param_names.remove(name)
-        logger.info("fixed parameters: {}".format(fixed_param_names))
+        #logger.info("fixed parameters: {}".format(fixed_param_names))
 
         _check_input_names(symbol, data_names, "data", True)
         _check_input_names(symbol, label_names, "label", False)
@@ -964,8 +964,6 @@ class DetModule(BaseModule):
         self.bind(data_shapes=train_data.provide_data, label_shapes=train_data.provide_label,
                   for_training=True, force_rebind=force_rebind)
 
-        if monitor is not None:
-            self.install_monitor(monitor)
         self.init_params(initializer=initializer, arg_params=arg_params, aux_params=aux_params,
                          allow_missing=allow_missing, force_init=force_init)
         self.init_optimizer(kvstore=kvstore, optimizer=optimizer,
@@ -986,20 +984,26 @@ class DetModule(BaseModule):
             data_iter = iter(train_data)
             end_of_batch = False
             next_data_batch = next(data_iter)
-            while not end_of_batch:
+            if eval_data:
+                res = self.score(eval_data, validation_metric,
+                                 score_end_callback=eval_end_callback,
+                                 batch_end_callback=eval_batch_end_callback, epoch=epoch)
+                #TODO: pull this into default
+                for name, val in res:
+                    self.logger.info('Epoch[%d] Validation-%s=%f', epoch, name, val)
+                    
+            while not end_of_batch: # loop through the epoch
                 data_batch = next_data_batch
-                if monitor is not None:
-                    monitor.tic()
                 self.forward_backward(data_batch)
                 self.update()
-
+                
                 if isinstance(data_batch, list):
                     self.update_metric(eval_metric,
                                        [db.label for db in data_batch],
                                        pre_sliced=True)
                 else:
                     self.update_metric(eval_metric, data_batch.label)
-
+                    
                 try:
                     # pre fetch next batch
                     next_data_batch = next(data_iter)
@@ -1007,11 +1011,9 @@ class DetModule(BaseModule):
                 except StopIteration:
                     end_of_batch = True
 
-                if monitor is not None:
-                    monitor.toc_print()
-
                 if end_of_batch:
                     eval_name_vals = eval_metric.get_name_value()
+                    
 
                 if batch_end_callback is not None:
                     batch_end_params = BatchEndParam(epoch=epoch, nbatch=nbatch,
@@ -1019,8 +1021,9 @@ class DetModule(BaseModule):
                                                      locals=locals())
                     for callback in _as_list(batch_end_callback):
                         callback(batch_end_params)
+                 
                 nbatch += 1
-
+                
                 if profile is True and nbatch == 10:
                     self.logger.info("Profiling ends")
                     import mxnet as mx
@@ -1031,14 +1034,14 @@ class DetModule(BaseModule):
                 self.logger.info('Epoch[%d] Train-%s=%f', epoch, name, val)
             toc = time.time()
             self.logger.info('Epoch[%d] Time cost=%.3f', epoch, (toc - tic))
-
+           
             # sync aux params across devices
             arg_params, aux_params = self.get_params()
             self.set_params(arg_params, aux_params)
-
             if epoch_end_callback is not None and self._kvstore.rank == 0:
+                
                 for callback in _as_list(epoch_end_callback):
                     callback(epoch, self.symbol, arg_params, aux_params)
-
+            
             # end of 1 epoch, reset the data-iter for another epoch
             train_data.reset()
